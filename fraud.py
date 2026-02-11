@@ -5,8 +5,8 @@ import numpy as np
 # 1. LOAD DATA
 # ===============================
 
-file_path = r"C:\Users\Charmi\Desktop\fraud detection\PaySim.xlsx"
-df = pd.read_excel(file_path, sheet_name="PaySim")
+file_path = r"C:\Users\Charmi\Desktop\fraud detection\PaySim.csv"
+df = pd.read_csv(file_path)
 
 print("Dataset shape:", df.shape)
 print(df.head())
