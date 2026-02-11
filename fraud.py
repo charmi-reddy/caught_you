@@ -2,23 +2,41 @@ import pandas as pd
 import numpy as np
 
 # ===============================
-# 1. LOAD DATA
+# 1. LOAD FIRST 50K ROWS
 # ===============================
 
 file_path = r"C:\Users\Charmi\Desktop\fraud detection\PaySim.csv"
-df = pd.read_csv(file_path)
+
+df = pd.read_csv(file_path, nrows=50000)
 
 print("Dataset shape:", df.shape)
-print(df.head())
 
 # ===============================
-# 2. SORT BY TIME
+# 2. KEEP ONLY NECESSARY COLUMNS
+# ===============================
+
+df = df[[
+    "step",
+    "type",
+    "amount",
+    "nameOrig",
+    "nameDest",
+    "isFraud"
+]]
+
+# Reduce memory usage
+df["step"] = df["step"].astype("int32")
+df["amount"] = df["amount"].astype("float32")
+df["isFraud"] = df["isFraud"].astype("int8")
+
+# ===============================
+# 3. SORT BY TIME
 # ===============================
 
 df = df.sort_values("step").reset_index(drop=True)
 
 # ===============================
-# 3. FILTER ONLY TRANSFER & CASH_OUT
+# 4. FILTER ONLY TRANSFER & CASH_OUT
 # ===============================
 
 df = df[df["type"].isin(["TRANSFER", "CASH_OUT"])].reset_index(drop=True)
@@ -26,49 +44,44 @@ df = df[df["type"].isin(["TRANSFER", "CASH_OUT"])].reset_index(drop=True)
 print("After filtering:", df.shape)
 
 # ===============================
-# 4. CREATE PAIRWISE HISTORY FEATURES
+# 5. FAST PAIRWISE HISTORY FEATURES
 # ===============================
 
-# Historical average amount per sender-receiver pair
-df["pair_avg"] = (
-    df.groupby(["nameOrig", "nameDest"])["amount"]
-      .transform(lambda x: x.shift().expanding().mean())
-)
+group = df.groupby(["nameOrig", "nameDest"])
 
-# Historical max amount per pair
-df["pair_max"] = (
-    df.groupby(["nameOrig", "nameDest"])["amount"]
-      .transform(lambda x: x.shift().expanding().max())
-)
+# Transaction count BEFORE current transaction
+df["pair_tx_count"] = group.cumcount()
 
-# Count of transactions between pair
-df["pair_tx_count"] = (
-    df.groupby(["nameOrig", "nameDest"]).cumcount()
-)
+# Cumulative amount BEFORE current transaction
+df["cum_amount"] = group["amount"].cumsum() - df["amount"]
 
-# Fill NaNs for first transactions
+# Historical average
+df["pair_avg"] = df["cum_amount"] / df["pair_tx_count"].replace(0, np.nan)
+
+# Historical max BEFORE current transaction
+df["pair_max"] = group["amount"].cummax().shift()
+
+# Fill NaNs
 df["pair_avg"] = df["pair_avg"].fillna(0)
 df["pair_max"] = df["pair_max"].fillna(0)
 
 # ===============================
-# 5. SPIKE DETECTION FEATURE
+# 6. SPIKE DETECTION FEATURE
 # ===============================
 
 df["spike_ratio"] = df["amount"] / (df["pair_avg"] + 1)
 
 # ===============================
-# 6. RULE-BASED FLAG
+# 7. RULE-BASED FLAG
 # ===============================
 
-df["rule_flag"] = np.where(
-    (df["spike_ratio"] > 20) | 
-    (df["amount"] > 5 * (df["pair_max"] + 1)),
-    1,
-    0
-)
+df["rule_flag"] = (
+    (df["spike_ratio"] > 20) |
+    (df["amount"] > 5 * (df["pair_max"] + 1))
+).astype(int)
 
 # ===============================
-# 7. VIEW SUSPICIOUS TRANSACTIONS
+# 8. VIEW SUSPICIOUS TRANSACTIONS
 # ===============================
 
 suspicious = df[df["rule_flag"] == 1]
